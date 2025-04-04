@@ -15,6 +15,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { initializeDbCache } from "./cache/index.ts";
 import { character } from "./character.ts";
+import { loadCharacter } from "./character.ts";
 import { startChat } from "./chat/index.ts";
 import { initializeClients } from "./clients/index.ts";
 import {
@@ -108,20 +109,15 @@ async function startAgent(character: Character, directClient: DirectClient) {
 }
 
 const checkPortAvailable = (port: number): Promise<boolean> => {
-  return new Promise((resolve) => {
+  return new Promise<boolean>((resolve) => {
     const server = net.createServer();
-
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        resolve(false);
-      }
+    server.once("error", () => {
+      resolve(false);
     });
-
     server.once("listening", () => {
       server.close();
       resolve(true);
     });
-
     server.listen(port);
   });
 };
@@ -136,12 +132,23 @@ const startAgents = async () => {
 
   console.log("charactersArg", charactersArg);
   if (charactersArg) {
-    characters = await loadCharacters(charactersArg);
+    if (typeof charactersArg === 'string' && fs.existsSync(charactersArg)) {
+      // If it's a character file path, load it
+      const loadedChar = await loadCharacter(charactersArg, null);
+      characters = [loadedChar];
+      console.log(`Loaded character ${loadedChar.name} from ${charactersArg}`);
+    } else {
+      characters = await loadCharacters(charactersArg);
+    }
   }
-  console.log("characters", characters);
+  console.log("characters loaded:", characters.length);
+  
+  const runtimes = [];
   try {
-    for (const character of characters) {
-      await startAgent(character, directClient as DirectClient);
+    for (const char of characters) {
+      console.log(`Starting agent for character: ${char.name}`);
+      const runtime = await startAgent(char, directClient as DirectClient);
+      runtimes.push({ character: char, runtime });
     }
   } catch (error) {
     elizaLogger.error("Error starting agents:", error);
